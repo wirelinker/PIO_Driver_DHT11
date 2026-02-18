@@ -1,0 +1,106 @@
+
+
+.pio_version 0 ;minimum pio version required
+
+; DHT11 init steps
+; 0. host set pin to output mode
+; 1. host pull low > 18ms (millisecond, not microsecond)
+; 2. host pull high 20~40us
+; 3. host change pin to input mode
+; 4. DHT11 pull low 80us
+; 5. DHT11 pull high 80us
+; 6. DHT11 start data transmission
+
+; DHT11 data type
+; MSb first, with 4 bytes data, 1 byte checksum
+;
+; for '0' bit
+;  1. DHT11 pull low 50us to start a bit.
+;  2. DHT11 pull high 26~28us.
+;  3. DHT11 start next bit by pull low.
+; for '1' bit
+;  1. DHT11 pull low 50us to start a bit.
+;  2. DHT11 pull high 70us.
+;  3. DHT11 start next bit by pull low.
+; end of transmission
+;  1. DHT11 pull low 50us, then release the data pin.
+;  2. The data pin then should be pulled high by the pull-up resistor(all at open-drain mode).
+
+
+
+.program dht11_pioasm
+
+.wrap_target
+host_request_start:
+    wait 0 pin 0              ;Stall here. Wait for the data pin to be pulled low.
+                              ;
+                              ;Host C program will pull low the data pin for 18ms to start.
+                              ;
+                              ;Output enabled by GPIO_OVERRIDE_INVERT, the data pin should be in 
+                              ;"open-drain output" mode. So the data pin is driven by
+                              ;push-pull trainsistor.
+
+    wait 1 pin 0              ;Stall here. Wait for the data pin to be pulled high.
+                              ;
+                              ;Host C program will disable the data pin output. 
+                              ;
+                              ;Output disabled by GPIO_OVERRIDE_INVERT.
+                              ;Data pin should be in "open-drain" mode and the pull-up resistor 
+                              ;will pull the data pin to high.
+                              ;Host hands over the control to DHT11.
+
+                              ;Then, DHT11 module will pull down the data pin as a response
+                              ;to the starting request.
+wait_sensor_resopnd_to_start:
+    wait 0 pin 0          [21];Wait data pin to be pulled low by DHT11 (expect 80us low).
+                              ;Just delay over 80us. Then wait for "low" again when reading.
+                              ;We can save one instruction memory.
+                              ;(1 + 21) * 7.6 = 167.2us
+                              ;(1 + 21) * 3.8 = 83.6us
+
+    ;The more reliable way to wait for the reading start.
+    ;wait 0 pin 0              ;Wait data pin to be pulled low by DHT11 (expect 80us low).
+    ;wait 1 pin 0              ;Wait data pin to be pulled high by DHT11 (expect 80us high).
+                               ;can not delay more than 160us when using 3.8us
+
+read_start:
+    set x, 4                  ;total read 5 bytes
+read_one_byte:
+    set y, 7                  ;read 8 bits per byte
+read_one_bit:
+    wait 0 pin 0              ;Wait pin pulled low by DHT11, then the data bit started.
+
+    ;when 7.6us clock period is selected
+    wait 1 pin 0          [3] ;Wait pin pulled high by DHT11, then delay about 30us.
+                              ;(1 + 3) * 7.6 = 30.4us.
+    ;when 3.8us clock period is selected
+    ;wait 1 pin 0          [7] ;Wait pin pulled high by DHT11, then delay about 30us.
+                              ;(1 + 7) * 3.8 = 30.4us.
+
+    in pins, 1                ;Sample data pin level as data bit.
+                              ;Use autopush, 8 bits as ISR count threshold.
+    jmp y-- read_one_bit
+    jmp x-- read_one_byte
+read_end:
+
+                              ;The DHT11 will pull data pin low for 50us at the ending of transmission.
+                              ;Just use long enough delay to skip checking the waveform.
+                              ;And, save one instruction memory.
+                              ;
+                              ;The time should not be shorter than 57us to be safe, according to some test.
+    ;when 7.6us clock period is selected
+    wait 0 pin 0         [7] ;wait DHT11 transmission ending pull low, then delay (1 + 7) * 7.6 = 60.8us
+    ;when 3.8us clock period is selected
+    ;wait 0 pin 0         [14] ;wait DHT11 transmission ending pull low, then delay (1 + 14) * 3.8 = 57us
+
+    ;The more reliable way to check the reading stop.
+    ;wait 0 pin 0              ;Wait data pin to be pulled low by DHT11 (expect 50us low).
+    ;wait 1 pin 0              ;Wait data pin to be pulled high by pull-up resistor (DHT11 released the data line).
+
+.wrap
+
+
+% c-sdk {
+
+
+%}
