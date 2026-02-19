@@ -1,5 +1,5 @@
 /**
- *
+ * Copyright (c) 2026 wirelinker
  * SPDX-License-Identifier: MIT License
  */
 
@@ -8,6 +8,7 @@
 #include "pico/stdlib.h"
 #include "hardware/pio.h"
 #include "dht11.pio.h"
+#include "dht11_pio.h"
 
 #include "hardware/clocks.h"
 #include "hardware/gpio.h"
@@ -108,7 +109,7 @@ void dht11_init(PIO *pio, uint *sm, uint *offset) {
     dht11_pio_init(*pio, *sm, *offset, DHT11_PIO_PIN);
 }
 
-void dht11_read(PIO* pio_ptr, uint *sm_ptr) {
+void dht11_read(PIO* pio, uint *sm) {
 
     uint32_t data[5] = {0};
     uint32_t data_idx = 0;
@@ -124,17 +125,17 @@ void dht11_read(PIO* pio_ptr, uint *sm_ptr) {
     }
 
     printf("Start Reading\n");
-    pio_sm_exec(*pio_ptr, *sm_ptr, pio_encode_set(pio_pins, 0));
+    pio_sm_exec(*pio, *sm, pio_encode_set(pio_pins, 0));
     sleep_ms(18);
 
-    pio_sm_exec(*pio_ptr, *sm_ptr, pio_encode_set(pio_pins, 1));
+    pio_sm_exec(*pio, *sm, pio_encode_set(pio_pins, 1));
 
     /* Wait for sensor to send data.*/
     sleep_ms(40);
 
-    while(!pio_sm_is_rx_fifo_empty(*pio_ptr, *sm_ptr))
+    while(!pio_sm_is_rx_fifo_empty(*pio, *sm))
     {
-        data[data_idx] = pio_sm_get(*pio_ptr, *sm_ptr);
+        data[data_idx] = pio_sm_get(*pio, *sm);
         data_idx++;
     }
     data_idx = 0;
@@ -145,26 +146,4 @@ void dht11_read(PIO* pio_ptr, uint *sm_ptr) {
 
 
 
-int main() {
-
-    /* Use PIO block 0, state machine 0.
-     * pio_code_memory_offset: Machine code offset in PIO block instruction memory.
-     * Will be set when adding asm program machine code to the instruction memory.*/
-    PIO pio_block = pio0;
-    uint pio_sm = 0;
-    uint pio_code_memory_offset = 0;
-
-    /* For print out message. */
-    setup_default_uart();
-
-    dht11_init(&pio_block, &pio_sm, &pio_code_memory_offset); 
-
-    while(1)
-    {
-        sleep_ms(2000);
-        dht11_read(&pio_block, &pio_sm);
-    }
-
-    pio_remove_program_and_unclaim_sm(&dht11_pioasm_program, pio_block, pio_sm, pio_code_memory_offset);
-}
 
